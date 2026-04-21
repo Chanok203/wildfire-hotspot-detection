@@ -1,7 +1,11 @@
 .vscode/
 venv/
+__pycache__/
+*.pyc
+
 logs/
 .env
 app/weights/*
+
 
 !**/.gitkeep
