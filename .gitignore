@@ -1,0 +1,7 @@
+.vscode/
+venv/
+logs/
+.env
+app/weights/*
+
+!**/.gitkeep
