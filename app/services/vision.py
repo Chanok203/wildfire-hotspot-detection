@@ -122,6 +122,8 @@ class HotspotInstance:
         self.pusher_process = self._init_pusher(width, height)
 
         try:
+            retry_count = 0
+            max_retries = 50  # ลองใหม่สักครู่
             while self.is_running:
                 # 1. ตรวจสอบอายุ Instance
                 if time.time() - self.start_time > self.duration:
@@ -130,7 +132,13 @@ class HotspotInstance:
 
                 ret, frame = cap.read()
                 if not ret:
-                    break
+                    retry_count += 1
+                    if retry_count > max_retries:
+                        print(f"[{self.drone_id}] Stream lost permanently.")
+                        break
+                    time.sleep(0.1)  # พักแป๊บเดียวแล้วลองใหม่
+                    continue
+                retry_count = 0  # ถ้าอ่านได้ให้รีเซ็ตตัวนับ
 
                 # 2. AI Inference (YOLOv8 Segmentation)
                 results = self.model.predict(frame, conf=0.25, verbose=False)
