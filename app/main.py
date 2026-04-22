@@ -22,6 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 def read_root():
     return jsend_success({"message": "Wildfire hotspot Detection API is running"})
@@ -107,3 +108,44 @@ async def delete_all_instances():
         del active_instances[drone_id]
 
     return jsend_success({"deleted_count": count})
+
+
+@app.get("/api/v1/hotspot-detection/{drone_id}")
+async def get_instance(drone_id: str):
+    instance = active_instances.get(drone_id)
+
+    if not instance or not instance.is_running:
+        return jsend_fail(
+            {"message": "Instance not found or not running"}, status_code=404
+        )
+
+    return jsend_success(
+        {
+            "id": drone_id,
+            "is_running": instance.is_running,
+            "start_time": instance.start_time,
+            "duration": instance.duration,
+            "remaining_sec": max(
+                0, int(instance.duration - (time.time() - instance.start_time))
+            ),
+        }
+    )
+
+
+@app.patch("/api/v1/hotspot-detection/{drone_id}")
+async def extend_instance_time(drone_id: str):
+    instance = active_instances.get(drone_id)
+
+    if not instance or not instance.is_running:
+        return jsend_fail({"message": "Instance not found"}, status_code=404)
+
+    # เรียกใช้เมธอดที่เราเพิ่งเพิ่ม
+    instance.extend_duration()
+
+    return jsend_success(
+        {
+            "id": drone_id,
+            "message": "Heartbeat received, timer reset",
+            "remaining_sec": int(instance.duration),
+        }
+    )

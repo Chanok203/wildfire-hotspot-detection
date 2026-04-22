@@ -222,3 +222,14 @@ class HotspotInstance:
 
         _, buffer = cv2.imencode(".jpg", img)
         return buffer.tobytes()
+
+    def extend_duration(self, seconds=None):
+        """
+        รีเซ็ตเวลาเริ่มต้น หรือเพิ่มระยะเวลาการรัน
+        """
+        if seconds:
+            self.duration += seconds
+        else:
+            # ถ้าไม่ระบุวินาที ให้ถือว่ารีเซ็ตเวลาเริ่มใหม่ (นับถอยหลังใหม่จาก duration เดิม)
+            self.start_time = time.time()
+        print(f"[{self.drone_id}] Duration extended. New start time: {self.start_time}")
