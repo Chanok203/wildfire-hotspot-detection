@@ -2,6 +2,7 @@ import os
 import time
 import subprocess
 import threading
+import base64
 from collections import deque
 
 import cv2
@@ -82,15 +83,16 @@ class HotspotInstance:
             "-r",
             target_fps,
             "-c:v",
-            "libx264",
+            "h264_nvenc",
             "-pix_fmt",
             "yuv420p",
             "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
+            "p1",
+            "-delay", "0",
+            "-forced-idr", "1",
             "-g",
             target_fps,
+            "-cq", "30",
             "-f",
             "rtsp",
             "-rtsp_transport",
@@ -116,10 +118,14 @@ class HotspotInstance:
             self.is_running = False
             return
 
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        ai_inference_size = 640 
+        orig_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        orig_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        ratio = ai_inference_size / max(orig_width, orig_height)
+        new_w, new_h = int(orig_width * ratio), int(orig_height * ratio)
+        # new_w, new_h = (orig_width, orig_height)
 
-        self.pusher_process = self._init_pusher(width, height)
+        self.pusher_process = self._init_pusher(new_w, new_h)
 
         try:
             retry_count = 0
@@ -129,6 +135,9 @@ class HotspotInstance:
                 if time.time() - self.start_time > self.duration:
                     print(f"[{self.drone_id}] Duration reached, stopping...")
                     break
+
+                for _ in range(4):
+                    cap.grab()
 
                 ret, frame = cap.read()
                 if not ret:
@@ -141,6 +150,7 @@ class HotspotInstance:
                 retry_count = 0  # ถ้าอ่านได้ให้รีเซ็ตตัวนับ
 
                 # 2. AI Inference (YOLOv8 Segmentation)
+                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
                 results = self.model.predict(frame, conf=0.25, verbose=False)
 
                 # 3. จัดการ Mask และ Temporal Logic
@@ -241,3 +251,36 @@ class HotspotInstance:
             # ถ้าไม่ระบุวินาที ให้ถือว่ารีเซ็ตเวลาเริ่มใหม่ (นับถอยหลังใหม่จาก duration เดิม)
             self.start_time = time.time()
         print(f"[{self.drone_id}] Duration extended. New start time: {self.start_time}")
+
+    def get_full_analysis_data(self):
+        with self.lock:
+            if self.latest_frame is None:
+                return None
+            # 1. เตรียมภาพ Original (เอาไว้แสดงผลแบบสะอาด)
+            _, buffer_orig = cv2.imencode(".jpg", self.latest_frame)
+            orig_base64 = base64.b64encode(buffer_orig).decode("utf-8")
+            # 2. เตรียมภาพ Detected (ที่มีวาด Mask/Expansion แล้ว)
+            # เรียกใช้ logic เดิมที่คุณมีใน get_snapshot_image()
+            img_detected = self.latest_frame.copy()
+            res = self.latest_results
+            exp = self.latest_expansion
+            bboxes = []
+            if res and res[0].masks is not None:
+                # เก็บ BBox ข้อมูลพิกัด (x1, y1, x2, y2)
+                bboxes = res[0].boxes.xyxy.tolist() if res[0].boxes is not None else []
+                for mask in res[0].masks.xy:
+                    cv2.polylines(
+                        img_detected, [mask.astype(np.int32)], True, (0, 0, 255), 3
+                    )
+            if exp is not None and np.any(exp):
+                img_detected[exp == 255] = [0, 255, 0]
+                
+            _, buffer_det = cv2.imencode(".jpg", img_detected)
+            det_base64 = base64.b64encode(buffer_det).decode("utf-8")
+            return {
+                "timestamp": time.time(),
+                "drone_id": self.drone_id,
+                "original_image": orig_base64,
+                "detected_image": det_base64,
+                "bboxes": bboxes,
+            }

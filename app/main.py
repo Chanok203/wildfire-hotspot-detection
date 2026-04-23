@@ -149,3 +149,22 @@ async def extend_instance_time(drone_id: str):
             "remaining_sec": int(instance.duration),
         }
     )
+
+@app.get("/api/v1/hotspot-detection/{drone_id}/analysis")
+async def get_analysis(drone_id: str):
+
+    instance = active_instances.get(drone_id)
+
+    if not instance or not instance.is_running:
+
+        return jsend_fail({"message": "Instance not found"}, status_code=404)
+
+
+    data = instance.get_full_analysis_data()
+
+    if data is None:
+
+        return jsend_error("Analysis data not ready", code=503)
+
+
+    return jsend_success(data)
