@@ -38,7 +38,7 @@ class FireMaskTracker:
 
 
 class HotspotInstance:
-    def __init__(self, drone_id, model, input_url, output_url, duration=600):
+    def __init__(self, drone_id, model, input_url, output_url, duration=600, enable_expansion=False):
         self.drone_id = drone_id
         self.model = model
         self.input_url = input_url
@@ -58,6 +58,7 @@ class HotspotInstance:
 
         # Temporal Logic
         self.tracker = FireMaskTracker(history_len=10)
+        self.enable_expansion = enable_expansion # ปิดไว้ก่อน เพราะ กินทรัพยากรเครื่องมาก
 
     def _init_pusher(self, width, height):
         """สร้าง FFmpeg Process สำหรับ Push Stream ไปยัง MediaMTX/RTSP Server"""
@@ -155,13 +156,15 @@ class HotspotInstance:
 
                 # 3. จัดการ Mask และ Temporal Logic
                 h, w = frame.shape[:2]
-                current_mask = np.zeros((h, w), dtype=np.uint8)
+                expansion = None
 
-                if results[0].masks is not None:
-                    for mask_data in results[0].masks.xy:
-                        cv2.fillPoly(current_mask, [mask_data.astype(np.int32)], 255)
+                if self.enable_expansion:
+                    current_mask = np.zeros((h, w), dtype=np.uint8)
+                    if results[0].masks is not None:
+                        for mask_data in results[0].masks.xy:
+                            cv2.fillPoly(current_mask, [mask_data.astype(np.int32)], 255)
 
-                expansion = self.tracker.update(current_mask)
+                    expansion = self.tracker.update(current_mask)
 
                 # 4. อัปเดตข้อมูลแชร์ (Thread-safe)
                 with self.lock:
@@ -234,7 +237,7 @@ class HotspotInstance:
                 cv2.polylines(img, [mask.astype(np.int32)], True, (0, 0, 255), 3)
 
         # วาดหัวไฟขยายตัว (สีเขียว)
-        if exp is not None and np.any(exp):
+        if self.enable_expansion and exp is not None and np.any(exp):
             mask_indices = np.where(exp == 255)
             img[mask_indices[0], mask_indices[1]] = [0, 255, 0]
 
@@ -272,7 +275,7 @@ class HotspotInstance:
                     cv2.polylines(
                         img_detected, [mask.astype(np.int32)], True, (0, 0, 255), 3
                     )
-            if exp is not None and np.any(exp):
+            if self.enable_expansion and exp is not None and np.any(exp):
                 img_detected[exp == 255] = [0, 255, 0]
                 
             _, buffer_det = cv2.imencode(".jpg", img_detected)
